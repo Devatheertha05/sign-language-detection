@@ -50,7 +50,9 @@
       <div class="col-md-8 card-glass text-center p-4">
         <h1 class="mb-4">🤟 Sign Language Detection</h1>
 
-        <img src="{{ url_for('video_feed') }}" class="img-fluid rounded" alt="Webcam feed" />
+        <video id="webcam" autoplay playsinline width="640" height="480"></video>
+<canvas id="canvas" style="display:none;"></canvas>
+>
 
         <h3 class="mt-4">Predicted Sign:</h3>
         <div id="prediction">{{ prediction }}</div>
@@ -78,11 +80,38 @@
         });
     }, 1000);
 
+
     // Optional: speak automatically on load
     window.onload = function () {
       speakPrediction();
     };
   </script>
+  <script>
+const video = document.getElementById('webcam');
+const canvas = document.getElementById('canvas');
+const context = canvas.getContext('2d');
+
+navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+  video.srcObject = stream;
+  setInterval(() => {
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      const formData = new FormData();
+      formData.append('frame', blob);
+
+      fetch('/predict', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById('prediction').innerText = data.prediction;
+      });
+    }, 'image/jpeg');
+  }, 1000); // Predict every second
+});
+</script>
+
 </body>
 
 </html>

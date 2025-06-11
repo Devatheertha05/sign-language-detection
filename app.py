@@ -1,9 +1,10 @@
-from flask import Flask, render_template, Response, jsonify
-import cv2
+from flask import Flask, render_template, request, jsonify
 import pickle
 import numpy as np
 import mediapipe as mp
-
+from PIL import Image
+import io
+import os
 app = Flask(__name__)
 
 # Load trained model
@@ -12,52 +13,40 @@ with open("model/sign_model.pkl", "rb") as f:
 
 current_prediction = "..."
 
+# Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands()
+hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.7)
 mp_drawing = mp.solutions.drawing_utils
-
-def generate_frames():
-    global current_prediction
-    cap = cv2.VideoCapture(0)
-
-    while True:
-        success, frame = cap.read()
-        if not success:
-            break
-
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(frame_rgb)
-
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-                
-                # Extract features (you can customize this part)
-                landmarks = []
-                for lm in hand_landmarks.landmark:
-                    landmarks.extend([lm.x, lm.y, lm.z])
-                
-                if len(landmarks) == 63:  # 21 landmarks * 3 coords
-                    prediction = model.predict([landmarks])
-                    current_prediction = prediction[0]
-
-        ret, buffer = cv2.imencode('.jpg', frame)
-        frame = buffer.tobytes()
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 @app.route('/')
 def index():
-    return render_template('index.html', prediction=current_prediction)
+    return render_template('index.html')
 
-@app.route('/video_feed')
-def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+@app.route('/predict', methods=['POST'])
+def predict():
+    global current_prediction
+    if 'frame' not in request.files:
+        return jsonify({'prediction': current_prediction})
+    
+    file = request.files['frame']
+    image = Image.open(file.stream).convert('RGB')
+    image_np = np.array(image)
 
-@app.route('/prediction')
-def prediction():
-    return jsonify(prediction=current_prediction)
+    results = hands.process(image_np)
+
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            landmarks = []
+            for lm in hand_landmarks.landmark:
+                landmarks.extend([lm.x, lm.y, lm.z])
+            if len(landmarks) == 63:
+                prediction = model.predict([landmarks])
+                current_prediction = prediction[0]
+                break
+
+    return jsonify({'prediction': current_prediction})
 
 if __name__ == '__main__':
     app.run(debug=True)
+app.run(debug=False, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+
